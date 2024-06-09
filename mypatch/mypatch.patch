@@ -1,0 +1,271 @@
+diff -urN linuxnew/drivers/char/ex5.c linuxold/drivers/char/ex5.c
+--- linuxnew/drivers/char/ex5.c	2024-06-06 10:44:17.006780068 +0300
++++ linuxold/drivers/char/ex5.c	1970-01-01 02:00:00.000000000 +0200
+@@ -1,244 +0,0 @@
+-#include <linux/module.h>
+-#include <linux/kernel.h>
+-#include <linux/errno.h>
+-#include <linux/cdev.h>
+-#include <linux/fs.h>
+-#include <linux/device.h>
+-#include <linux/version.h>
+-#include <linux/uaccess.h>
+-#include <linux/slab.h>
+-#include <linux/wait.h>
+-//DECLARE_WAIT_QUEUE_HEAD (mywq);
+-
+-static int nparam = 5;
+-module_param(nparam, int, 0644);
+-dev_t dev;
+-int units = 2;
+-
+-#define BUFFER_SIZE 10
+-
+-
+-struct mod_priv {
+-    struct cdev mod_cdev;
+-    struct class *mod_cl;
+-    struct device *mod_dev;
+-    int open;
+-    char buffer[BUFFER_SIZE];
+-    size_t buffer_size;
+-    size_t read;
+-    size_t write;
+-    size_t data_size;
+-    size_t space_available;
+-    wait_queue_head_t read_queue;
+-    wait_queue_head_t write_queue;
+-};
+-
+-static struct mod_priv mod_priv;
+-
+-static int my_open(struct inode *ino, struct file *filp)
+-{
+-    struct mod_priv *mp;
+-
+-    mp = (void *)container_of(ino->i_cdev, struct mod_priv, mod_cdev);
+-    filp->private_data = mp;
+-    mp->open++;
+-    printk(KERN_INFO "Device open count: %d\n", mp->open);
+-    //printk(KERN_INFO "f_flags is: %x\n", filp->f_flags);
+-   if (filp->f_flags & O_NONBLOCK) {
+-        printk(KERN_INFO "triv_mod: O_NONBLOCK flag is set\n");
+-    } else {
+-        printk(KERN_INFO "triv_mod: O_NONBLOCK flag is not set\n");
+-    }
+-
+-    mp->buffer_size = BUFFER_SIZE;
+-    mp->read = 0;
+-    mp->write = 0;
+-    mp->data_size = 0;
+-    mp->space_available=BUFFER_SIZE;
+-    filp->private_data = mp;
+-    ////////////////mp->
+-    init_waitqueue_head(&mp->read_queue);
+-    init_waitqueue_head(&mp->write_queue);
+-    return 0;
+-}
+-
+-static int my_release(struct inode *inode, struct file *file)
+-{
+-    struct mod_priv *mp = container_of(inode->i_cdev, struct mod_priv, mod_cdev);
+-    
+-    printk(KERN_INFO "triv_mod: device closed\n");
+-
+-    mp->open--;
+-     file->private_data = mp;
+-    return 0;
+-}
+-
+-static ssize_t my_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
+-{
+-     if (file->f_flags & O_NONBLOCK) {
+-        printk(KERN_INFO "triv_mod: O_NONBLOCK flag is set\n");
+-    } else {
+-        printk(KERN_INFO "triv_mod: O_NONBLOCK flag is not set\n");
+-    }
+-    struct mod_priv *fpd = file->private_data;
+-
+-    ssize_t ret;
+-    size_t bytes_to_read;
+-    bytes_to_read = count;
+-
+-   //if not enough data is ready
+-if (bytes_to_read > fpd->data_size )  {
+-      if (file->f_flags & O_NONBLOCK) {
+-             printk(KERN_INFO "triv_mod: no space available for read  %zu bytes\n", count);
+-        return -EAGAIN; // No space available for reading  
+-      }  else{
+-        printk(KERN_INFO "triv_mod: waiting to reead   %zu bytes\n", count);
+-        wait_event_interruptible(fpd->read_queue, bytes_to_read <=fpd->data_size);
+-        
+-      }
+-      
+-}
+- 
+-
+-
+- //if enough data is ready
+-    if (fpd->read + bytes_to_read <= fpd->buffer_size) {
+-        if (copy_to_user(buf, fpd->buffer + fpd->read, bytes_to_read)) {
+-            return -EFAULT;
+-        }
+-    } else {
+-        size_t part1_size = fpd->buffer_size - fpd->read;
+-        if (copy_to_user(buf, fpd->buffer + fpd->read, part1_size)) {
+-            return -EFAULT;
+-        }
+-        if (copy_to_user(buf + part1_size, fpd->buffer, bytes_to_read - part1_size)) {
+-            return -EFAULT;
+-        }
+-    }
+-
+-    fpd->read = (fpd->read + bytes_to_read) % fpd->buffer_size;
+-    fpd->data_size -= bytes_to_read;
+-    fpd->space_available = fpd->buffer_size - fpd->data_size;
+-    ret = bytes_to_read;
+-    printk(KERN_INFO "triv_mod: read %zu bytes\n", bytes_to_read);
+-      wake_up_interruptible(&fpd->write_queue);
+-
+-    return ret;
+-}
+-static ssize_t my_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
+-{
+-     if (file->f_flags & O_NONBLOCK) {
+-        printk(KERN_INFO "triv_mod: O_NONBLOCK flag is set\n");
+-    } else {
+-        printk(KERN_INFO "triv_mod: O_NONBLOCK flag is not set\n");
+-    }
+-    struct mod_priv *fpd = file->private_data;
+-    ssize_t ret;
+-   size_t  space_at_end;
+-   //size_t space_available;
+-
+-
+-    //space_available = fpd->buffer_size - fpd->data_size;
+-    if (count > fpd->space_available) {
+-         if (file->f_flags & O_NONBLOCK) {
+-        printk(KERN_INFO "triv_mod: no space available for writing %zu bytes\n", count);
+-        return -EAGAIN; // No space available for writing
+-         } else{
+-             printk(KERN_INFO "triv_mod: waiting to write   %zu bytes\n", count);
+-             wait_event_interruptible(fpd->write_queue, fpd->space_available>=count);
+-         }
+-    }
+-
+-    space_at_end = fpd->buffer_size - fpd->write;
+-
+-    if (count > space_at_end) {
+-        if (copy_from_user(fpd->buffer + fpd->write, buf, space_at_end)) {
+-            return -EFAULT;
+-        }
+-        if (copy_from_user(fpd->buffer, buf + space_at_end, count - space_at_end)) {
+-            return -EFAULT;
+-        }
+-    } else {
+-        if (copy_from_user(fpd->buffer + fpd->write, buf, count)) {
+-            return -EFAULT;
+-        }
+-    }
+-
+-    fpd->write = (fpd->write + count) % fpd->buffer_size;
+-    fpd->data_size += count;
+-    fpd->space_available = fpd->buffer_size - fpd->data_size;
+-    ret = count;
+-    printk(KERN_INFO "triv_mod: wrote %zu bytes\n", count);
+-    wake_up_interruptible(&fpd->read_queue);
+-    return ret;
+-}
+-
+-static struct file_operations fops = {
+-    .owner = THIS_MODULE,
+-    .open = my_open,
+-    .release = my_release,
+-    .read = my_read,
+-    .write = my_write,
+-};
+-
+-static int __init trivmod_init(void)
+-{
+-    int err;
+-    printk(KERN_INFO "triv_mod loaded\n");
+-
+-    err = alloc_chrdev_region(&dev, 0, units, "CourseDev");
+-    if (err < 0)
+-        goto dvr_err;
+-
+-    cdev_init(&mod_priv.mod_cdev, &fops);
+-    err = cdev_add(&mod_priv.mod_cdev, dev, units);
+-    if (err < 0)
+-        goto cdev_err;
+-
+-    mod_priv.mod_cl = class_create("CourseDev");
+-    if (IS_ERR(mod_priv.mod_cl)) {
+-        err = PTR_ERR(mod_priv.mod_cl);
+-        goto clc_err;
+-    }
+-
+-    mod_priv.mod_dev = device_create(mod_priv.mod_cl, NULL, dev, NULL, "myDev");
+-    if (IS_ERR(mod_priv.mod_dev)) {
+-        err = PTR_ERR(mod_priv.mod_dev);
+-        goto dvc_err;
+-    }
+-
+-     mod_priv.buffer_size = BUFFER_SIZE;
+-    mod_priv.read = 0;
+-    mod_priv.write = 0;
+-    mod_priv.data_size = 0;
+-    mod_priv.space_available=BUFFER_SIZE;
+-    
+-    return 0;
+-
+-dvc_err:
+-    class_destroy(mod_priv.mod_cl);
+-clc_err:
+-    cdev_del(&mod_priv.mod_cdev);
+-cdev_err:
+-    unregister_chrdev_region(dev, units);
+-dvr_err:
+-    return err;
+-}
+-
+-static void __exit trivmod_exit(void)
+-{
+-    device_destroy(mod_priv.mod_cl, dev);
+-    class_destroy(mod_priv.mod_cl);
+-    cdev_del(&mod_priv.mod_cdev);
+-    unregister_chrdev_region(dev, units);
+-    printk(KERN_INFO "triv_mod unloaded\n");
+-}
+-
+-MODULE_LICENSE("GPL");
+-MODULE_VERSION("0.1");
+-MODULE_AUTHOR("Instructor");
+-MODULE_PARM_DESC(nparam, "A numeric demonstration parameter");
+-MODULE_DESCRIPTION("A trivial exercise module");
+-
+-module_init(trivmod_init);
+-module_exit(trivmod_exit);
+\ No newline at end of file
+diff -urN linuxnew/drivers/char/Kconfig linuxold/drivers/char/Kconfig
+--- linuxnew/drivers/char/Kconfig	2024-06-06 14:33:14.748166392 +0300
++++ linuxold/drivers/char/Kconfig	2024-05-13 00:12:29.000000000 +0300
+@@ -421,9 +421,5 @@
+ 	  This feature is also known as MCD (Memory Corruption Detection)
+ 	  and SSM (Silicon Secured Memory).  Intended consumers of this
+ 	  driver include crash and makedumpfile.
+-obj-$(CONFIG_MY_MODULE)                 += my_module.o
+ 
+-config MYMOD
+-                 tristate “My Module"
+-                 default y
+ endmenu
+diff -urN linuxnew/drivers/char/Makefile linuxold/drivers/char/Makefile
+--- linuxnew/drivers/char/Makefile	2024-06-06 14:33:15.979166337 +0300
++++ linuxold/drivers/char/Makefile	2024-05-13 00:12:29.000000000 +0300
+@@ -43,5 +43,3 @@
+ obj-$(CONFIG_XILLYBUS_CLASS)	+= xillybus/
+ obj-$(CONFIG_POWERNV_OP_PANEL)	+= powernv-op-panel.o
+ obj-$(CONFIG_ADI)		+= adi.o
+-obj-$(CONFIG_MYMOD) += ex5.o
+-
