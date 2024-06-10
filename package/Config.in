@@ -9,6 +9,7 @@ menu "Target packages"
 	source "package/skeleton-init-systemd/Config.in"
 	source "package/skeleton-init-sysv/Config.in"
 
+
 menu "Audio and video applications"
 	source "package/alsa-utils/Config.in"
 	source "package/atest/Config.in"
@@ -68,6 +69,9 @@ menu "Audio and video applications"
 	source "package/zynaddsubfx/Config.in"
 endmenu
 
+menu "my_server Packages"
+    source "package/my_server/Config.in"
+endmenu
 menu "Compressors and decompressors"
 	source "package/brotli/Config.in"
 	source "package/bzip2/Config.in"
@@ -83,6 +87,10 @@ menu "Compressors and decompressors"
 	source "package/xz/Config.in"
 	source "package/zip/Config.in"
 	source "package/zstd/Config.in"
+endmenu
+
+menu "EMBEDDEDINN Packages"
+    source "package/server/Config.in"
 endmenu
 
 menu "Debugging, profiling and benchmark"
